@@ -1,0 +1,4 @@
+load filesystem_hw1.dump
+cat file1.txt
+exit
+

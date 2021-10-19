@@ -1,0 +1,4 @@
+load filesystem_hw1.dump
+ls
+exit
+
