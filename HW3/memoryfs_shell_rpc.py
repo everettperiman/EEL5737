@@ -172,6 +172,8 @@ class FSShell():
 
   def Interpreter(self):
     while (True):
+      self.FileObject.RawBlocks.Release()
+      self.FileObject.RawBlocks.Acquire()
       command = input("[cwd=" + str(self.cwd) + "]:")
       splitcmd = command.split()
       if len(splitcmd) == 0:
@@ -242,6 +244,7 @@ class FSShell():
         return
       else:
         print ("command " + splitcmd[0] + " not valid.\n")
+
 
 
 if __name__ == "__main__":

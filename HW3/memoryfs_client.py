@@ -1,5 +1,7 @@
 import pickle, logging 
 import xmlrpc.client
+import time
+
 
 # For locks: RSM_UNLOCKED=0 , RSM_LOCKED=1 
 RSM_UNLOCKED = bytearray(b'\x00') * 1
@@ -91,6 +93,9 @@ INODE_TYPE_SYM = 3
 class DiskBlocks():
   def __init__(self, args):
 
+    self.CacheInvalidationTime = time.time() # Added to support cache invalidation
+
+
     # initialize clientID 
     if args.cid>=0 and args.cid<MAX_CLIENTS:
       self.clientID = args.cid
@@ -175,7 +180,13 @@ class DiskBlocks():
   ## Put: interface to write a raw block of data to the block indexed by block number
 ## Blocks are padded with zeroes up to BLOCK_SIZE
 
-  def Put(self, block_number, block_data):
+  def Put(self, block_number, block_data, Invalidate=True):
+
+    # If the client is modifying anything on the server update the invalidation time on the server
+    if(Invalidate):
+      print("CacheInvalidationIssued")
+      serverCacheTime = self.block_server.InvalidateClientCaches() # Added to support cache invalidation
+      self.blockcache = {} # Added to support cache invalidation
 
     logging.debug ('Put: block number ' + str(block_number) + ' len ' + str(len(block_data)) + '\n' + str(block_data.hex()))
     if len(block_data) > BLOCK_SIZE:
@@ -234,31 +245,47 @@ class DiskBlocks():
   def Acquire(self):
 
     logging.debug ('Acquire')
-    lockvalue = self.RSM(RSM_BLOCK);
+    print("Acquiring")
+
+    lockvalue = self.block_server.RSM(RSM_BLOCK);
     logging.debug ("RSM_BLOCK Lock value: " + str(lockvalue))
+    
+    print("RSM_BLOCK Lock value: " + str(lockvalue))
+    
     while lockvalue[0] == 1: # test just first byte of block to check if RSM_LOCKED
+      print("Acquire: spinning...")
       logging.debug ("Acquire: spinning...")
-      lockvalue = self.RSM(RSM_BLOCK);
+      lockvalue = self.block_server.RSM(RSM_BLOCK);
+    self.Put(RSM_BLOCK,bytearray(RSM_LOCKED.ljust(BLOCK_SIZE,b'\x01')),False)
     return 0
 
   def Release(self):
-
     logging.debug ('Release')
     # Put()s a zero-filled block to release lock
-    self.Put(RSM_BLOCK,bytearray(RSM_UNLOCKED.ljust(BLOCK_SIZE,b'\x00')))
+    time.sleep(0)
+    print("Release")
+    self.Put(RSM_BLOCK,bytearray(RSM_UNLOCKED.ljust(BLOCK_SIZE,b'\x00')),False)
     return 0
 
 ## Copy a block from the cache, or bring a block from server and add to the cache
 
   def Get(self, block_number):
-
     logging.debug ('Get: ' + str(block_number))
+    # Testing Cache Invalidation
+    # Get most recent invalidation event
+    # If the items have gone stale since then flush all of the items locally
+    serverCacheTime = self.block_server.GetInvalidateTime()
+    if self.CacheInvalidationTime != serverCacheTime:
+      print("InvalidatingLocalCache")
+      self.blockcache = {}
+      self.CacheInvalidationTime = serverCacheTime
+
     if block_number in range(0,TOTAL_NUM_BLOCKS):
       # is it in the cache?
-      if block_number in self.blockcache:
+      if block_number in self.blockcache:        
         logging.debug ('Get: cache hit for ' + str(block_number))
         return self.blockcache[block_number]
-      else:
+      else:        
         logging.debug ('Get: cache miss for ' + str(block_number))
         # call Get() method on the server
         data = self.ServerGet(block_number)
@@ -267,9 +294,10 @@ class DiskBlocks():
         # store to cache
         self.blockcache[block_number] = result
         return result
-
+    
     logging.error('Get: Block number larger than TOTAL_NUM_BLOCKS: ' + str(block_number))
     quit()
+    
 
 
 ## Serializes and saves block[] data structure to a disk file

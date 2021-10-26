@@ -1,5 +1,6 @@
 import pickle, logging
 import argparse
+import time # Added to support cacheinvalidation
 
 # For locks: RSM_UNLOCKED=0 , RSM_LOCKED=1 
 RSM_UNLOCKED = bytearray(b'\x00') * 1
@@ -21,7 +22,11 @@ class DiskBlocks():
       putdata = bytearray(block_size)
       self.block.insert(i,putdata)
 
+
+
 if __name__ == "__main__":
+  
+  CacheInvalidationTime = time.time() # Added to support cache invalidation
 
   # Construct the argument parser
   ap = argparse.ArgumentParser()
@@ -71,12 +76,32 @@ if __name__ == "__main__":
   def RSM(block_number):
     result = RawBlocks.block[block_number]
     # RawBlocks.block[block_number] = RSM_LOCKED
-    RawBlocks.block[block_number] = bytearray(RSM_LOCKED.ljust(BLOCK_SIZE,b'\x01'))
+    RawBlocks.block[block_number] = bytearray(RSM_UNLOCKED.ljust(BLOCK_SIZE,b'\x00'))
     return result
 
   server.register_function(RSM)
 
+  def Release(self):
+    logging.debug ('Release')
+    # Put()s a zero-filled block to release lock
+    time.sleep(10)
+    print("Release")
+    self.Put(RSM_BLOCK,bytearray(RSM_UNLOCKED.ljust(BLOCK_SIZE,b'\x00')),False)
+    return 0
+
+  def InvalidateClientCaches():
+    server.invalidatetime = time.time()
+    return server.invalidatetime
+
+  server.register_function(InvalidateClientCaches)
+
+  def GetInvalidateTime():
+    return server.invalidatetime
+
+  server.register_function(GetInvalidateTime)
+
   # Run the server's main loop
-  print ("Running block server with nb=" + str(TOTAL_NUM_BLOCKS) + ", bs=" + str(BLOCK_SIZE) + " on port " + str(PORT))
+  print("Running block server with nb=" + str(TOTAL_NUM_BLOCKS) + ", bs=" + str(BLOCK_SIZE) + " on port " + str(PORT))
+  server.invalidatetime = time.time()
   server.serve_forever()
 
