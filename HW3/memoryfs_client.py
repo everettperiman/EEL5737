@@ -259,15 +259,17 @@ class DiskBlocks():
     logging.debug ("RSM_BLOCK Lock value: " + str(lockvalue))
     
     while lockvalue[0] == 1: # test just first byte of block to check if RSM_LOCKED
-      logging.debug ("Acquire: spinning...")
-      print("Waiting")
-      lockvalue = self.block_server.RSM(RSM_BLOCK);
-      
+      print(exp_backoff)
       time.sleep(exp_backoff)
-      if exp_backoff == 0:
-        exp_backoff = 2
+      if exp_backoff < 2:
+        exp_backoff = exp_backoff + 1
       else:
         exp_backoff = exp_backoff * exp_backoff
+
+      logging.debug ("Acquire: spinning...")
+      lockvalue = self.block_server.RSM(RSM_BLOCK);
+
+      
     self.CheckClientCache()
     return 0
 
