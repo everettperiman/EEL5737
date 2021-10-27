@@ -180,13 +180,24 @@ class DiskBlocks():
   ## Put: interface to write a raw block of data to the block indexed by block number
 ## Blocks are padded with zeroes up to BLOCK_SIZE
 
-  def Put(self, block_number, block_data, Invalidate=True):
+  def InvalidateServerCache(self):
+    print("CacheInvalidationIssued")
+    serverCacheTime = self.block_server.InvalidateClientCaches() # Added to support cache invalidation
+    self.blockcache = {} # Added to support cache invalidation   
+    self.CacheInvalidationTime = serverCacheTime
+
+  def CheckClientCache(self):
+    serverCacheTime = self.block_server.GetInvalidateTime()
+    if self.CacheInvalidationTime != serverCacheTime:
+      print("InvalidatingLocalCache")
+      self.blockcache = {}
+      self.CacheInvalidationTime = serverCacheTime
+
+  def Put(self, block_number, block_data):
 
     # If the client is modifying anything on the server update the invalidation time on the server
-    if(Invalidate):
-      print("CacheInvalidationIssued")
-      serverCacheTime = self.block_server.InvalidateClientCaches() # Added to support cache invalidation
-      self.blockcache = {} # Added to support cache invalidation
+#    if Invalidate:
+#      self.InvalidateServerCache()
 
     logging.debug ('Put: block number ' + str(block_number) + ' len ' + str(len(block_data)) + '\n' + str(block_data.hex()))
     if len(block_data) > BLOCK_SIZE:
@@ -240,45 +251,37 @@ class DiskBlocks():
     logging.error('RSM: Block number larger than TOTAL_NUM_BLOCKS: ' + str(block_number))
     quit()
 
-## Acquire and Release using a disk block lock
-
   def Acquire(self):
+    exp_backoff = 0
 
     logging.debug ('Acquire')
-    print("Acquiring")
-
     lockvalue = self.block_server.RSM(RSM_BLOCK);
     logging.debug ("RSM_BLOCK Lock value: " + str(lockvalue))
     
-    print("RSM_BLOCK Lock value: " + str(lockvalue))
-    
     while lockvalue[0] == 1: # test just first byte of block to check if RSM_LOCKED
-      print("Acquire: spinning...")
       logging.debug ("Acquire: spinning...")
+      print("Waiting")
       lockvalue = self.block_server.RSM(RSM_BLOCK);
-    self.Put(RSM_BLOCK,bytearray(RSM_LOCKED.ljust(BLOCK_SIZE,b'\x01')),False)
+      
+      time.sleep(exp_backoff)
+      if exp_backoff == 0:
+        exp_backoff = 2
+      else:
+        exp_backoff = exp_backoff * exp_backoff
+    self.CheckClientCache()
     return 0
 
   def Release(self):
-    logging.debug ('Release')
-    # Put()s a zero-filled block to release lock
     time.sleep(0)
-    print("Release")
-    self.Put(RSM_BLOCK,bytearray(RSM_UNLOCKED.ljust(BLOCK_SIZE,b'\x00')),False)
+    logging.debug ('Release')
+    self.Put(RSM_BLOCK,bytearray(RSM_UNLOCKED.ljust(BLOCK_SIZE,b'\x00')))
     return 0
-
-## Copy a block from the cache, or bring a block from server and add to the cache
 
   def Get(self, block_number):
     logging.debug ('Get: ' + str(block_number))
     # Testing Cache Invalidation
     # Get most recent invalidation event
     # If the items have gone stale since then flush all of the items locally
-    serverCacheTime = self.block_server.GetInvalidateTime()
-    if self.CacheInvalidationTime != serverCacheTime:
-      print("InvalidatingLocalCache")
-      self.blockcache = {}
-      self.CacheInvalidationTime = serverCacheTime
 
     if block_number in range(0,TOTAL_NUM_BLOCKS):
       # is it in the cache?

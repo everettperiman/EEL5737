@@ -172,78 +172,86 @@ class FSShell():
 
   def Interpreter(self):
     while (True):
-      self.FileObject.RawBlocks.Release()
-      self.FileObject.RawBlocks.Acquire()
       command = input("[cwd=" + str(self.cwd) + "]:")
       splitcmd = command.split()
+
       if len(splitcmd) == 0:
         continue
-      elif splitcmd[0] == "cd":
-        if len(splitcmd) != 2:
-          print ("Error: cd requires one argument")
-        else:
-          self.cd(splitcmd[1])
-      elif splitcmd[0] == "cat":
-        if len(splitcmd) != 2:
-          print ("Error: cat requires one argument")
-        else:
-          self.cat(splitcmd[1])
-      elif splitcmd[0] == "mkdir":
-        if len(splitcmd) != 2:
-          print ("Error: mkdir requires one argument")
-        else:
-          self.mkdir(splitcmd[1])
-      elif splitcmd[0] == "create":
-        if len(splitcmd) != 2:
-          print ("Error: create requires one argument")
-        else:
-          self.create(splitcmd[1])
-      elif splitcmd[0] == "ln":
-        if len(splitcmd) != 3:
-          print ("Error: ln requires two arguments")
-        else:
-          self.link(splitcmd[1], splitcmd[2])
-      elif splitcmd[0] == "chroot":
-        if len(splitcmd) != 2:
-          print ("Error: chroot requires one argument")
-        else:
-          self.chroot(splitcmd[1])
-      elif splitcmd[0] == "append":
-        if len(splitcmd) != 3:
-          print ("Error: append requires two arguments")
-        else:
-          self.append(splitcmd[1], splitcmd[2])
-      elif splitcmd[0] == "ls":
-        self.ls()
-      elif splitcmd[0] == "showblock":
-        if len(splitcmd) != 2:
-          print ("Error: showblock requires one argument")
-        else:
-          self.showblock(splitcmd[1])
-      elif splitcmd[0] == "showinode":
-        if len(splitcmd) != 2:
-          print ("Error: showinode requires one argument")
-        else:
-          self.showinode(splitcmd[1])
-      elif splitcmd[0] == "showfsconfig":
-        if len(splitcmd) != 1:
-          print ("Error: showfsconfig do not require argument")
-        else:
-          self.showfsconfig()
-      elif splitcmd[0] == "load":
-        if len(splitcmd) != 2:
-          print ("Error: load requires 1 argument")
-        else:
-          self.load(splitcmd[1])
-      elif splitcmd[0] == "save":
-        if len(splitcmd) != 2:
-          print ("Error: save requires 1 argument")
-        else:
-          self.save(splitcmd[1])
-      elif splitcmd[0] == "exit":
-        return
+
       else:
-        print ("command " + splitcmd[0] + " not valid.\n")
+        self.FileObject.RawBlocks.Acquire()
+        if splitcmd[0] == "cd":
+          if len(splitcmd) != 2:
+            print ("Error: cd requires one argument")
+          else:
+            self.cd(splitcmd[1])
+        elif splitcmd[0] == "cat":
+          if len(splitcmd) != 2:
+            print ("Error: cat requires one argument")
+          else:
+            self.cat(splitcmd[1])
+        elif splitcmd[0] == "mkdir":
+          if len(splitcmd) != 2:
+            print ("Error: mkdir requires one argument")
+          else:
+            self.mkdir(splitcmd[1])
+            self.FileObject.RawBlocks.InvalidateServerCache()
+        elif splitcmd[0] == "create":
+          if len(splitcmd) != 2:
+            print ("Error: create requires one argument")
+          else:
+            self.create(splitcmd[1])
+            self.FileObject.RawBlocks.InvalidateServerCache()
+        elif splitcmd[0] == "ln":
+          if len(splitcmd) != 3:
+            print ("Error: ln requires two arguments")
+          else:
+            self.link(splitcmd[1], splitcmd[2])
+            self.FileObject.RawBlocks.InvalidateServerCache()
+        elif splitcmd[0] == "chroot":
+          if len(splitcmd) != 2:
+            print ("Error: chroot requires one argument")
+          else:
+            self.chroot(splitcmd[1])
+        elif splitcmd[0] == "append":
+          if len(splitcmd) != 3:
+            print ("Error: append requires two arguments")
+          else:
+            self.append(splitcmd[1], splitcmd[2])
+            self.FileObject.RawBlocks.InvalidateServerCache()
+        elif splitcmd[0] == "ls":
+          self.ls()
+        elif splitcmd[0] == "showblock":
+          if len(splitcmd) != 2:
+            print ("Error: showblock requires one argument")
+          else:
+            self.showblock(splitcmd[1])
+        elif splitcmd[0] == "showinode":
+          if len(splitcmd) != 2:
+            print ("Error: showinode requires one argument")
+          else:
+            self.showinode(splitcmd[1])
+        elif splitcmd[0] == "showfsconfig":
+          if len(splitcmd) != 1:
+            print ("Error: showfsconfig do not require argument")
+          else:
+            self.showfsconfig()
+        elif splitcmd[0] == "load":
+          if len(splitcmd) != 2:
+            print ("Error: load requires 1 argument")
+            self.FileObject.RawBlocks.InvalidateServerCache()
+          else:
+            self.load(splitcmd[1])
+        elif splitcmd[0] == "save":
+          if len(splitcmd) != 2:
+            print ("Error: save requires 1 argument")
+          else:
+            self.save(splitcmd[1])
+        elif splitcmd[0] == "exit":
+          return
+        else:
+          print ("command " + splitcmd[0] + " not valid.\n")
+        self.FileObject.RawBlocks.Release()
 
 
 

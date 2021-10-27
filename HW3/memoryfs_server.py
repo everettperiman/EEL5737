@@ -76,18 +76,11 @@ if __name__ == "__main__":
   def RSM(block_number):
     result = RawBlocks.block[block_number]
     # RawBlocks.block[block_number] = RSM_LOCKED
-    RawBlocks.block[block_number] = bytearray(RSM_UNLOCKED.ljust(BLOCK_SIZE,b'\x00'))
+    RawBlocks.block[block_number] = bytearray(RSM_LOCKED.ljust(BLOCK_SIZE,b'\x01'))
     return result
 
   server.register_function(RSM)
 
-  def Release(self):
-    logging.debug ('Release')
-    # Put()s a zero-filled block to release lock
-    time.sleep(10)
-    print("Release")
-    self.Put(RSM_BLOCK,bytearray(RSM_UNLOCKED.ljust(BLOCK_SIZE,b'\x00')),False)
-    return 0
 
   def InvalidateClientCaches():
     server.invalidatetime = time.time()
