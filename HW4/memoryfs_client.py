@@ -1,7 +1,5 @@
 import pickle, logging 
 import xmlrpc.client
-import time
-
 
 # For locks: RSM_UNLOCKED=0 , RSM_LOCKED=1 
 RSM_UNLOCKED = bytearray(b'\x00') * 1
@@ -93,9 +91,6 @@ INODE_TYPE_SYM = 3
 class DiskBlocks():
   def __init__(self, args):
 
-    self.CacheInvalidationTime = time.time() # Added to support cache invalidation
-
-
     # initialize clientID 
     if args.cid>=0 and args.cid<MAX_CLIENTS:
       self.clientID = args.cid
@@ -180,24 +175,7 @@ class DiskBlocks():
   ## Put: interface to write a raw block of data to the block indexed by block number
 ## Blocks are padded with zeroes up to BLOCK_SIZE
 
-  def InvalidateServerCache(self):
-    print("CacheInvalidationIssued")
-    serverCacheTime = self.block_server.InvalidateClientCaches() # Added to support cache invalidation
-    self.blockcache = {} # Added to support cache invalidation   
-    self.CacheInvalidationTime = serverCacheTime
-
-  def CheckClientCache(self):
-    serverCacheTime = self.block_server.GetInvalidateTime()
-    if self.CacheInvalidationTime != serverCacheTime:
-      print("InvalidatingLocalCache")
-      self.blockcache = {}
-      self.CacheInvalidationTime = serverCacheTime
-
   def Put(self, block_number, block_data):
-
-    # If the client is modifying anything on the server update the invalidation time on the server
-#    if Invalidate:
-#      self.InvalidateServerCache()
 
     logging.debug ('Put: block number ' + str(block_number) + ' len ' + str(len(block_data)) + '\n' + str(block_data.hex()))
     if len(block_data) > BLOCK_SIZE:
@@ -251,43 +229,74 @@ class DiskBlocks():
     logging.error('RSM: Block number larger than TOTAL_NUM_BLOCKS: ' + str(block_number))
     quit()
 
+## Acquire and Release using a disk block lock
+
   def Acquire(self):
-    exp_backoff = 0
 
     logging.debug ('Acquire')
-    lockvalue = self.block_server.RSM(RSM_BLOCK);
+    lockvalue = self.RSM(RSM_BLOCK);
     logging.debug ("RSM_BLOCK Lock value: " + str(lockvalue))
-    
     while lockvalue[0] == 1: # test just first byte of block to check if RSM_LOCKED
-      time.sleep(exp_backoff)
-      if exp_backoff < 2:
-        exp_backoff = exp_backoff + 1
-      else:
-        exp_backoff = exp_backoff * exp_backoff
-
       logging.debug ("Acquire: spinning...")
-      lockvalue = self.block_server.RSM(RSM_BLOCK);
-
-    self.CheckClientCache()
+      lockvalue = self.RSM(RSM_BLOCK);
     return 0
 
   def Release(self):
+
     logging.debug ('Release')
+    # Put()s a zero-filled block to release lock
     self.Put(RSM_BLOCK,bytearray(RSM_UNLOCKED.ljust(BLOCK_SIZE,b'\x00')))
     return 0
 
-  def Get(self, block_number):
-    logging.debug ('Get: ' + str(block_number))
-    # Testing Cache Invalidation
-    # Get most recent invalidation event
-    # If the items have gone stale since then flush all of the items locally
+## Check if block cache needs to be invalidated
 
+  def CheckAndInvalidate(self):
+
+    logging.debug ('CheckAndInvalidate')
+    # Fetch block with invalidation information from server
+    invalidate_block = self.ServerGet(INVALIDATE_BLOCK)
+    # Extract state for this client
+    my_invalid_state = invalidate_block[INVALIDATE_BYTE_OFFSET + self.clientID]
+    if my_invalid_state:
+      print("InvalidatingLocalCache")
+      logging.debug ('CheckAndInvalidate: invalidating cache')
+      # invalidate block cache
+      self.blockcache = {}
+      # change entry for this client to 0 - the cache has been invalidated
+      invalidate_block[INVALIDATE_BYTE_OFFSET + self.clientID] = 0 
+      # write back to server
+      self.Put(INVALIDATE_BLOCK,invalidate_block)
+    return 0
+
+## Force the invalidation of all block caches
+
+  def ForceInvalidate(self):
+
+    logging.debug ('ForceInvalidate')
+    print("CacheInvalidationIssued")
+    # Fetch block with invalidation information from server
+    invalidate_block = self.ServerGet(INVALIDATE_BLOCK)
+    logging.debug ('ForceInvalidate: type is' + str(type(invalidate_block)))
+    # Fill in invalidate_value=1 for all clients
+    for i in range(0,MAX_CLIENTS):
+      invalidate_block[INVALIDATE_BYTE_OFFSET+i] = 1 
+    # Put block back into server
+    self.Put(INVALIDATE_BLOCK,invalidate_block)
+    # invalidate own cache
+    self.CheckAndInvalidate()
+    return 0
+
+## Copy a block from the cache, or bring a block from server and add to the cache
+
+  def Get(self, block_number):
+
+    logging.debug ('Get: ' + str(block_number))
     if block_number in range(0,TOTAL_NUM_BLOCKS):
       # is it in the cache?
-      if block_number in self.blockcache:        
+      if block_number in self.blockcache:
         logging.debug ('Get: cache hit for ' + str(block_number))
         return self.blockcache[block_number]
-      else:        
+      else:
         logging.debug ('Get: cache miss for ' + str(block_number))
         # call Get() method on the server
         data = self.ServerGet(block_number)
@@ -296,10 +305,9 @@ class DiskBlocks():
         # store to cache
         self.blockcache[block_number] = result
         return result
-    
+
     logging.error('Get: Block number larger than TOTAL_NUM_BLOCKS: ' + str(block_number))
     quit()
-    
 
 
 ## Serializes and saves block[] data structure to a disk file
