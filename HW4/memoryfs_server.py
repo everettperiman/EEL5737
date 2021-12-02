@@ -1,6 +1,7 @@
 import pickle, logging
 import argparse
 import hashlib
+import xmlrpc.client
 
 # For locks: RSM_UNLOCKED=0 , RSM_LOCKED=1 
 RSM_UNLOCKED = bytearray(b'\x00') * 1
@@ -8,6 +9,7 @@ RSM_LOCKED = bytearray(b'\x01') * 1
 
 from xmlrpc.server import SimpleXMLRPCServer
 from xmlrpc.server import SimpleXMLRPCRequestHandler
+
 
 # Restrict to a particular path.
 class RequestHandler(SimpleXMLRPCRequestHandler):
@@ -19,16 +21,20 @@ class DiskBlocks():
     self.block = []                                            
     # Initialize raw blocks 
     for i in range (0, total_num_blocks):
-      putdata = bytearray(block_size)
+      putdata = xmlrpc.client.Binary(bytearray(block_size))
       self.block.insert(i,putdata)
 
 def checksum_check(block_number, data):
+  print("{} {}".format(block_number, CBLCK))
   if block_number == CBLCK:
     print("Bad block")
     return 0
   else:
     if hashlib.md5(bytearray(data.data)).hexdigest() == server.checksums[block_number]:
       print("It matches!")
+      return 1
+    else:
+      return 0
 
 
 if __name__ == "__main__":
@@ -70,7 +76,7 @@ if __name__ == "__main__":
     print('Must specify server id number')
     quit()
 
-  if args.cblck:
+  if args.cblck is not None:
     CBLCK = args.cblck
   else:
     CBLCK = -1
@@ -88,6 +94,7 @@ if __name__ == "__main__":
     result = RawBlocks.block[block_number]
     checksum_check(block_number, result)
     return result
+
 
   server.register_function(Get)
 

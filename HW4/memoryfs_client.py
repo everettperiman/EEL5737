@@ -109,12 +109,105 @@ class RAID_engine():
           block_server = xmlrpc.client.ServerProxy(server_url, use_builtin_types=True)
           block_server_id = block_server.ServerID()
           self.serverlookup.append(RAID_server(block_server_id,args_dict[argument],block_server))
-    self.print_servers()
+    self.PrintServers()
+    self.nservers = len(self.serverlookup)
+    self.table = []
+    for i in range(86):
+      row = []
+      for j in range(self.nservers):
+        row.append(-1)
+      self.table.append(row)
 
-  def print_servers(self):
+  def ValidServers(self):
+    validservers = 0
+    for i in self.serverlookup:
+      if i.valid:
+        validservers = validservers + 1
+    return validservers
+
+  def PrintServers(self):
     for i in self.serverlookup:
       print(i.server_info())
 
+  def PrintTable(self):
+    for i in self.table:
+      print(i)
+      
+
+  def MapServers(self, block_number):
+    nservers = self.nservers
+    stripe = block_number // (nservers - 1)
+    parity = stripe % nservers 
+    column = block_number % nservers
+    self.table[stripe][column] = block_number
+    print("{} {} {}".format(block_number, stripe, column))
+    return [column, stripe, parity]
+
+
+  def byte_xor(self, ba1, ba2):
+    ba1 = bytearray(ba1)
+    ba2 = bytearray(ba2)
+    C = []
+    for i in range(BLOCK_SIZE):
+      C.append(ba1[i] ^ ba2[i])
+    return bytearray(C)
+
+  def UpdateParity(self, block_number, putdata):
+
+    stripe_info = self.MapServers(block_number)
+    parity_block = self.Get(block_number, stripe_info[2], stripe_info[1])
+    old_data_block = self.Get(block_number)
+    new_parity_block = self.byte_xor(parity_block, old_data_block)
+    new_parity_block = self.byte_xor(putdata, new_parity_block)
+    self.Put(block_number, putdata, True)
+
+  def Get(self, block_number, server=None, block=None):
+    x = 1
+    
+    if not server:
+      data = self.MapServers(block_number)
+      server = data[0]
+      new_block_number = data[1]
+      
+    else:
+      server = server
+      new_block_number = block
+
+    server_obj = self.serverlookup[server]
+
+    if server_obj.valid:
+      try:
+        x = server_obj.obj.Get(block_number)
+      except Exception as e:
+        print(e)
+        server_obj.valid = False
+
+    return x
+
+  def Put(self,block_number, putdata, isparityput=False):
+    x = 1
+    
+    if(not isparityput):
+      self.UpdateParity(block_number, putdata)
+
+
+    data = self.MapServers(block_number)
+    server = data[0]
+    new_block_number = data[1]
+    server_obj = self.serverlookup[server]
+
+    if server_obj.valid:
+      try:
+        x = server_obj.obj.Put(block_number,putdata)
+      except Exception as e:
+        print(e)
+        server_obj.valid = False
+        
+    return x
+
+  def CreateParity():
+    pass
+"""
   def Get(self,block_number):
     x = 1
     for i in self.serverlookup:
@@ -137,7 +230,7 @@ class RAID_engine():
           print(e)
           i.valid = False
     return x
-
+"""
 #### BLOCK LAYER 
 
 class DiskBlocks():
