@@ -1,0 +1,4 @@
+Server Args
+python3 memoryfs_server.py -nb 256 -bs 128 -port 1082 -sid 1
+Client Args
+python3 memoryfs_shell_rpc.py -nb 256 -bs 128 -port0 1082 -cid 1 -ns 8

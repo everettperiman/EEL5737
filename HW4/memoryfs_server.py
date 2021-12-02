@@ -1,5 +1,6 @@
 import pickle, logging
 import argparse
+import hashlib
 
 # For locks: RSM_UNLOCKED=0 , RSM_LOCKED=1 
 RSM_UNLOCKED = bytearray(b'\x00') * 1
@@ -21,6 +22,15 @@ class DiskBlocks():
       putdata = bytearray(block_size)
       self.block.insert(i,putdata)
 
+def checksum_check(block_number, data):
+  if block_number == CBLCK:
+    print("Bad block")
+    return 0
+  else:
+    if hashlib.md5(bytearray(data.data)).hexdigest() == server.checksums[block_number]:
+      print("It matches!")
+
+
 if __name__ == "__main__":
 
   # Construct the argument parser
@@ -29,8 +39,12 @@ if __name__ == "__main__":
   ap.add_argument('-nb', '--total_num_blocks', type=int, help='an integer value')
   ap.add_argument('-bs', '--block_size', type=int, help='an integer value')
   ap.add_argument('-port', '--port', type=int, help='an integer value')
+  ap.add_argument('-sid', '--sid', type=int, help='an integer value') # Added to support adding server ID value
+  ap.add_argument('-cblck', '--cblck', type=int, help='an integer value', required=False) # Added to support adding a bad block
+
 
   args = ap.parse_args()
+  print(args)
 
   if args.total_num_blocks:
     TOTAL_NUM_BLOCKS = args.total_num_blocks
@@ -50,20 +64,36 @@ if __name__ == "__main__":
     print('Must specify port number')
     quit()
 
+  if args.sid is not None:
+    SID = args.sid
+  else:
+    print('Must specify server id number')
+    quit()
+
+  if args.cblck:
+    CBLCK = args.cblck
+  else:
+    CBLCK = -1
+
+
   # initialize blocks
   RawBlocks = DiskBlocks(TOTAL_NUM_BLOCKS, BLOCK_SIZE)
 
   # Create server
   server = SimpleXMLRPCServer(("127.0.0.1", PORT), requestHandler=RequestHandler) 
 
+  server.checksums = [0 for i in range(TOTAL_NUM_BLOCKS+1)]
+
   def Get(block_number):
     result = RawBlocks.block[block_number]
+    checksum_check(block_number, result)
     return result
 
   server.register_function(Get)
 
   def Put(block_number, data):
     RawBlocks.block[block_number] = data
+    server.checksums[block_number] = hashlib.md5(data.data).hexdigest()
     return 0
 
   server.register_function(Put)
@@ -75,6 +105,12 @@ if __name__ == "__main__":
     return result
 
   server.register_function(RSM)
+
+  def ServerID():
+    result = args.sid
+    return result
+
+  server.register_function(ServerID)
 
   # Run the server's main loop
   print ("Running block server with nb=" + str(TOTAL_NUM_BLOCKS) + ", bs=" + str(BLOCK_SIZE) + " on port " + str(PORT))

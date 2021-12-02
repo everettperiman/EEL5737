@@ -180,67 +180,67 @@ class FSShell():
         if len(splitcmd) != 2:
           print ("Error: cd requires one argument")
         else:
-          self.FileObject.RawBlocks.Acquire()
-          self.FileObject.RawBlocks.CheckAndInvalidate()
+          #self.FileObject.RawBlocks.Acquire()
+          #self.FileObject.RawBlocks.CheckAndInvalidate()
           self.cd(splitcmd[1])
-          self.FileObject.RawBlocks.Release()
+          #self.FileObject.RawBlocks.Release()
       elif splitcmd[0] == "cat":
         if len(splitcmd) != 2:
           print ("Error: cat requires one argument")
         else:
-          self.FileObject.RawBlocks.Acquire()
-          self.FileObject.RawBlocks.CheckAndInvalidate()
+          #self.FileObject.RawBlocks.Acquire()
+          #self.FileObject.RawBlocks.CheckAndInvalidate()
           self.cat(splitcmd[1])
-          self.FileObject.RawBlocks.Release()
+          #self.FileObject.RawBlocks.Release()
       elif splitcmd[0] == "mkdir":
         if len(splitcmd) != 2:
           print ("Error: mkdir requires one argument")
         else:
-          self.FileObject.RawBlocks.Acquire()
-          self.FileObject.RawBlocks.CheckAndInvalidate()
+          #self.FileObject.RawBlocks.Acquire()
+          #self.FileObject.RawBlocks.CheckAndInvalidate()
           self.mkdir(splitcmd[1])
-          self.FileObject.RawBlocks.ForceInvalidate()
-          self.FileObject.RawBlocks.Release()
+          #self.FileObject.RawBlocks.ForceInvalidate()
+          #self.FileObject.RawBlocks.Release()
       elif splitcmd[0] == "create":
         if len(splitcmd) != 2:
           print ("Error: create requires one argument")
         else:
-          self.FileObject.RawBlocks.Acquire()
+          #self.FileObject.RawBlocks.Acquire()
           self.FileObject.RawBlocks.CheckAndInvalidate()
           self.create(splitcmd[1])
           self.FileObject.RawBlocks.ForceInvalidate()
-          self.FileObject.RawBlocks.Release()
+          #self.FileObject.RawBlocks.Release()
       elif splitcmd[0] == "ln":
         if len(splitcmd) != 3:
           print ("Error: ln requires two arguments")
         else:
-          self.FileObject.RawBlocks.Acquire()
+          #self.FileObject.RawBlocks.Acquire()
           self.FileObject.RawBlocks.CheckAndInvalidate()
           self.link(splitcmd[1], splitcmd[2])
           self.FileObject.RawBlocks.ForceInvalidate()
-          self.FileObject.RawBlocks.Release()
+          #self.FileObject.RawBlocks.Release()
       elif splitcmd[0] == "chroot":
         if len(splitcmd) != 2:
           print ("Error: chroot requires one argument")
         else:
-          self.FileObject.RawBlocks.Acquire()
+          #self.FileObject.RawBlocks.Acquire()
           self.FileObject.RawBlocks.CheckAndInvalidate()
           self.chroot(splitcmd[1])
-          self.FileObject.RawBlocks.Release()
+          #self.FileObject.RawBlocks.Release()
       elif splitcmd[0] == "append":
         if len(splitcmd) != 3:
           print ("Error: append requires two arguments")
         else:
-          self.FileObject.RawBlocks.Acquire()
+          #self.FileObject.RawBlocks.Acquire()
           self.FileObject.RawBlocks.CheckAndInvalidate()
           self.append(splitcmd[1], splitcmd[2])
           self.FileObject.RawBlocks.ForceInvalidate()
-          self.FileObject.RawBlocks.Release()
+          #self.FileObject.RawBlocks.Release()
       elif splitcmd[0] == "ls":
-        self.FileObject.RawBlocks.Acquire()
+        #self.FileObject.RawBlocks.Acquire()
         self.FileObject.RawBlocks.CheckAndInvalidate()
         self.ls()
-        self.FileObject.RawBlocks.Release()
+        #self.FileObject.RawBlocks.Release()
       elif splitcmd[0] == "showblock":
         if len(splitcmd) != 2:
           print ("Error: showblock requires one argument")
@@ -273,6 +273,10 @@ class FSShell():
 
 
 if __name__ == "__main__":
+  #Max Servers
+  MAX_N = 8
+  MIN_N = 1
+  SERVER_LIST = []
 
   # Initialize file for logging
   # Change logging level to INFO to remove debugging messages
@@ -282,17 +286,52 @@ if __name__ == "__main__":
   # Construct the argument parser
   ap = argparse.ArgumentParser()
 
+  # Added to handle more servers being added
+  for i in range(MAX_N):
+    ap.add_argument('-port' + str(i), '--port' + str(i), type=int, help='an integer value')
+
   ap.add_argument('-nb', '--total_num_blocks', type=int, help='an integer value')
   ap.add_argument('-bs', '--block_size', type=int, help='an integer value')
   ap.add_argument('-ni', '--max_num_inodes', type=int, help='an integer value')
   ap.add_argument('-is', '--inode_size', type=int, help='an integer value')
-  ap.add_argument('-port', '--port', type=int, help='an integer value')
+  #ap.add_argument('-port', '--port', type=int, help='an integer value') Removed to support several ports
   ap.add_argument('-cid', '--cid', type=int, help='an integer value')
+  ap.add_argument('-ns', '--ns', type=int, help='an integer value') # Added support for the number of servers
+
 
   # Other than FS args, consecutive args will be captured in by 'arg' as list
   ap.add_argument('arg', nargs='*')
 
   args = ap.parse_args()
+  print(args)
+
+  #added this section to constrain number of servers requested
+  if args.ns <= MAX_N:
+    BLOCK_SIZE = args.block_size
+  else:
+    print('Too many servers requested')
+    quit()
+
+  if args.ns >= MIN_N:
+    BLOCK_SIZE = args.block_size
+  else:
+    print('Too few servers requested')
+    quit()
+
+
+  # added this section to check that the number of ports matches the number of servers
+  valid_ports = 0
+  args_dict = vars(args)
+  for argument in args_dict:
+    if "port" in argument:
+      if(args_dict[argument]):
+        valid_ports = valid_ports + 1
+  if(valid_ports != args.ns):
+    print("Not enough ports")
+    quit()
+  
+  #RAID_engine(args)
+  server_filesystems = []
 
   # Initialize empty file system data
   logging.info('Initializing data structures...')

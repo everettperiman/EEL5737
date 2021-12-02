@@ -86,6 +86,58 @@ INODE_TYPE_FILE = 1
 INODE_TYPE_DIR = 2
 INODE_TYPE_SYM = 3
 
+class RAID_server():
+  def __init__(self, id, port, serveraccess):
+    self.id = id
+    self.port = port
+    self.obj = serveraccess
+    self.valid = True
+
+  def server_info(self):
+    server_info = "ID:{} Port:{} Object:{}".format(self.id, self.port, self.obj)
+    return server_info
+
+class RAID_engine():
+  def __init__(self, args):
+    self.serverlookup = []
+
+    args_dict = vars(args)
+    for argument in args_dict:
+      if "port" in argument:
+        if(args_dict[argument]):
+          server_url = 'http://' + SERVER_ADDRESS + ':' + str(args_dict[argument])
+          block_server = xmlrpc.client.ServerProxy(server_url, use_builtin_types=True)
+          block_server_id = block_server.ServerID()
+          self.serverlookup.append(RAID_server(block_server_id,args_dict[argument],block_server))
+    self.print_servers()
+
+  def print_servers(self):
+    for i in self.serverlookup:
+      print(i.server_info())
+
+  def Get(self,block_number):
+    x = 1
+    for i in self.serverlookup:
+      if i.valid:
+        try:
+          x = i.obj.Get(block_number)
+        except Exception as e:
+          print(e)
+          i.valid = False
+    return x
+
+  def Put(self,block_number,putdata):
+    x = 1
+    for i in self.serverlookup:
+      if i.valid:
+        try:
+          #print(type(putdata))
+          x = i.obj.Put(block_number,putdata)
+        except Exception as e:
+          print(e)
+          i.valid = False
+    return x
+
 #### BLOCK LAYER 
 
 class DiskBlocks():
@@ -99,13 +151,15 @@ class DiskBlocks():
       quit()
 
     # initialize XMLRPC client connection to raw block server
-    if args.port:
-      PORT = args.port
-    else:
-      print('Must specify port number')
-      quit()
-    server_url = 'http://' + SERVER_ADDRESS + ':' + str(PORT)
-    self.block_server = xmlrpc.client.ServerProxy(server_url, use_builtin_types=True)
+    #if args.port0:
+    #  PORT = args.port0
+    #else:
+    #  print('Must specify port number')
+    #  quit()
+    #server_url = 'http://' + SERVER_ADDRESS + ':' + str(PORT)
+    #self.block_server = xmlrpc.client.ServerProxy(server_url, use_builtin_types=True)
+    
+    self.RAID_engine = RAID_engine(args)
 
     self.HandleFSConstants(args)
 
@@ -185,11 +239,16 @@ class DiskBlocks():
     if block_number in range(0,TOTAL_NUM_BLOCKS): 
       # ljust does the padding with zeros
       putdata = bytearray(block_data.ljust(BLOCK_SIZE,b'\x00'))
+      #print(type(putdata))
       # Write block
       # commenting this out as the request now goes to the server
       # self.block[block_number] = putdata
       # call Put() method on the server and check for error
-      ret = self.block_server.Put(block_number,putdata)
+      
+      # old version
+      #ret = self.block_server.Put(block_number,putdata)
+      ret = self.RAID_engine.Put(block_number,putdata)
+
       if ret == -1:
         logging.error('Put: Server returns error')
         quit()
@@ -210,7 +269,12 @@ class DiskBlocks():
       # commenting this out as the request now goes to the server
       # return self.block[block_number]
       # call Get() method on the server
-      data = self.block_server.Get(block_number)
+
+      # old version
+      #data = self.block_server.Get(block_number)
+      data = self.RAID_engine.Get(block_number)
+      
+
       # return as bytearray
       return bytearray(data)
 
@@ -223,7 +287,12 @@ class DiskBlocks():
 
     logging.debug ('RSM: ' + str(block_number))
     if block_number in range(0,TOTAL_NUM_BLOCKS):
+      
+
+      # old version
       data = self.block_server.RSM(block_number)
+
+
       return bytearray(data)
 
     logging.error('RSM: Block number larger than TOTAL_NUM_BLOCKS: ' + str(block_number))
@@ -305,6 +374,7 @@ class DiskBlocks():
         # store to cache
         self.blockcache[block_number] = result
         return result
+
 
     logging.error('Get: Block number larger than TOTAL_NUM_BLOCKS: ' + str(block_number))
     quit()
