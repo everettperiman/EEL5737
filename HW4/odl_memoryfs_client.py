@@ -1,8 +1,6 @@
 import pickle, logging 
 import xmlrpc.client
-import numpy as np 
-
-
+import math
 
 # For locks: RSM_UNLOCKED=0 , RSM_LOCKED=1 
 RSM_UNLOCKED = bytearray(b'\x00') * 1
@@ -89,33 +87,24 @@ INODE_TYPE_FILE = 1
 INODE_TYPE_DIR = 2
 INODE_TYPE_SYM = 3
 
-#### BLOCK LAYER 
-
 class RAID_server():
-  def __init__(self, id, port, serveraccess):
+  def __init__(self, id, index, port, serveraccess):
     self.id = id
+    self.index = index
     self.port = port
     self.obj = serveraccess
     self.valid = True
 
   def server_info(self):
-    server_info = "ID:{} Port:{} Object:{}".format(self.id, self.port, self.obj)
+    server_info = "ID:{} Port:{} Object:{}".format(self.id, self.index, self.port, self.obj)
     return server_info
 
-class DiskBlocks():
+class RAID_engine():
   def __init__(self, args):
-
-    # initialize clientID 
-    if args.cid>=0 and args.cid<MAX_CLIENTS:
-      self.clientID = args.cid
-    else:
-      print('Must specify valid cid')
-      quit()
-
-    self.HandleFSConstants(args)
-    self.good_servers = 0
     self.serverlookup = []
-    self.servers = []
+    self.good_servers = 0
+    self.block_server = []
+
     args_dict = vars(args)
     for argument in args_dict:
       if "port" in argument:
@@ -124,54 +113,20 @@ class DiskBlocks():
           block_server = xmlrpc.client.ServerProxy(server_url, use_builtin_types=True)
           block_server_id = block_server.ServerID()
           self.serverlookup.append(RAID_server(block_server_id,
+                                                self.good_servers,
                                                 args_dict[argument],
                                                 block_server))
-          self.servers.append(block_server)
-          self.good_servers += 1
+          self.block_server.append(block_server)
+          self.good_servers = self.good_servers + 1
+
+    self.PrintServers()
     self.nservers = len(self.serverlookup)
-
-  def byte_xor(self, arrayA, arrayB):
-    resultArray = []
-    for i in range(BLOCK_SIZE):
-      resultArray.append(arrayA[i] ^ arrayB[i])
-    return bytearray(resultArray)
-
-  def ConvertVblockData(self, vblock):
-      stripe = vblock // (self.nservers-1)
-      parityserver = (self.nservers - 1) - (stripe % (self.nservers))
-      server = vblock % (self.nservers-1) 
-      if server >= parityserver:
-        server=(server+1)%(self.nservers)
-      return server, stripe, parityserver
-
-  def GetRebuild(self, server, block_number):
-    recovered = bytearray(BLOCK_SIZE)
-    
-    logging.debug('Recovering Server [' + str(server) + ']  Block [' + str(block_number) + ']')
-    #print("Bad Server " +  str(server))
-    # XOR other servers
-    for i in range(0, self.nservers):
-        # Don't include server we're recovering for
-      if i != server:
-        print("Server " + str(i))
-        block = bytearray(self.ServerGet(i, block_number))
-        recovered = bytearray(np.bitwise_xor(recovered, block))
-
-    logging.debug('Recovered: ' + str(recovered.hex()))
-    print(int.from_bytes(recovered, "big"))
-    return recovered
-
-  def RebuildAll(self, bad_server):
-  
-    for i in range(TOTAL_NUM_BLOCKS // self.nservers):
-      print(i)
-      original = self.ServerGet(bad_server, i)
-      rebuilt = self.GetRebuild(bad_server, i)
-      print(original)
-      print(rebuilt)
-      #self.ServerPut(bad_server, i, rebuilt)
-      self.servers[int(bad_server)].Put(i, rebuilt)
-      #self.ServerPut(bad_server, i, rebuilt)
+    self.table = []
+    for i in range(86):
+      row = []
+      for j in range(self.nservers):
+        row.append(-1)
+      self.table.append(row)
 
   def updateServerStatus(self, serverid, status):
     if status:
@@ -186,87 +141,343 @@ class DiskBlocks():
     #print(self.good_servers)
     return
 
-  def UpdateParity(self, virtual_block, newData, failstop=False):
-    #print("Parity {}".format(virtual_block))
-    # Translate virtual
-    dataServer, parityBlock, parityServer = self.ConvertVblockData(virtual_block)
-    dataBlock = parityBlock
-    #parityServer, parityBlock = self.VirtualToPhysicalParity(virtual_block)
-    # read old data block
-    oldData = self.ServerGet(dataServer, dataBlock)
-    # read parity block
-    oldParity = self.ServerGet(parityServer, parityBlock)
-    # pad new data
-    newData = bytearray(newData.ljust(BLOCK_SIZE, b'\x00'))
-    # XOR new data with old data
-    dataXOR = bytearray(np.bitwise_xor(oldData, newData))
-    # XOR result of previous XOR with the parity block to get the new parity 
-    newParity = bytearray(np.bitwise_xor(dataXOR, oldParity))
-    # store the newly geneated parity block
-    newParity = bytearray(newParity.ljust(BLOCK_SIZE, b'\x00'))
+  def PrintServers(self):
+    for i in self.serverlookup:
+      print(i.server_info())
 
-    x = self.servers[parityServer].Get(parityBlock)
-    self.servers[parityServer].Put(parityBlock, newParity)
-    #print(oldParity)
-    #print(newParity)
-    return newParity
-
-## Get: interface to read a raw block of data from block indexed by block number
-## Equivalent to the textbook's BLOCK_NUMBER_TO_BLOCK(b)
-
-  def ServerGet(self, server, vblock):
-
-    logging.debug ('ServerGet: ' + str(vblock))
-    #print(vblock)
-    if vblock in range(0,TOTAL_NUM_BLOCKS):
-      # logging.debug ('\n' + str((self.block[block_number]).hex()))
-      # commenting this out as the request now goes to the server
-      # return self.block[block_number]
-      # call Get() method on the server
-      try:
-        data = self.serverlookup[server].obj.Get(vblock)
-        #print(data)
-        if(data != -1):
-          return bytearray(data)
-      except Exception as e:
-        print("Server {} bad".format(server))
-        print(e)
-      try:
-        data = self.GetRebuild(server, vblock)
-        print(data)
-        return bytearray(data)
-      except Exception as e:
-        print("Rebuild failed")
-        print(e)
+  def PrintTable(self):
+    for i in self.table:
+      print(i)
       
-      # return as bytearray
-      
+  def MapServers(self, block_number):
+    nservers = self.nservers
+    stripe = block_number // (nservers - 1)
+    parity = stripe % nservers 
+    column = block_number % (nservers-1)
+    #stripe = math.floor(block_number/(self.nservers-1))
+    #parity = (self.nservers-1) - (stripe % self.nservers)
+    #column = block_number % (self.nservers - 1)
+    #if column >= parity:
+    #  column = column + 1
 
-    quit()
+    self.table[stripe][column] = block_number
+    #print("Bn{} St{} Sr{}".format(block_number, stripe, column))
+    return [column, stripe, parity]
 
-  def ServerPut(self, server, vblock, putdata):
-    logging.debug ('ServerPut: ' + str(vblock))
-    if vblock in range(0,TOTAL_NUM_BLOCKS):
-      # logging.debug ('\n' + str((self.block[block_number]).hex()))
-      # commenting this out as the request now goes to the server
-      # return self.block[block_number]
-      # call Get() method on the server
+  
+  def _byte_xor(self, arrayA, arrayB):
+    resultArray = []
+    for i in range(BLOCK_SIZE):
+      resultArray.append(arrayA[i] ^ arrayB[i])
+    return bytearray(resultArray)
+
+  def byte_xor(self,one,two):
+    #a = int.from_bytes(one,'little')
+    #b = int.from_bytes(two,'little')
+    x = bytearray(a ^ b for (a, b) in zip(one, two))
+    #x = a ^ b
+    #x = bytearray((x.to_bytes(BLOCK_SIZE, byteorder='little')).ljust(BLOCK_SIZE,b'\x00'))
+    """
+    if(one != bytearray(BLOCK_SIZE)):
+      print(one)
+      print(int.from_bytes(one,'little'))
+    else:
+      print("one")
+    if(two != bytearray(BLOCK_SIZE)):
+      print(two)
+      print(int.from_bytes(two,'little'))
+    else:
+      print("two")
+    if(x != bytearray(BLOCK_SIZE)):
+      print(x)
+      print(int.from_bytes(x,'little'))
+    else:
+      print("x")
+    print("\n")
+    """
+    return x
+
+  def UpdateParityA(self, block_number, putdata):
+    servermap = self.MapServers(block_number)
+    current_server = servermap[0]
+    stripe = servermap[1]
+    parity = servermap[2]
+    server_indicies = [i for i in range(self.nservers)]
+    try:
+      server_indicies.remove(current_server)
+    except:
+      pass
+    byte_array = bytearray(BLOCK_SIZE)
+   # print(byte_array)
+    for i in server_indicies:
+      next_byte = bytearray(self.serverlookup[i].obj.Get(stripe))
+      print(stripe*i)
+      byte_array = self.byte_xor(byte_array,next_byte)
+    return bytes(byte_array)
+
+  def UpdateParityB(self, block_number, putdata):
+    servermap = self.MapServers(block_number)
+    current_server = servermap[0]
+    stripe = servermap[1]
+    parity = servermap[2]
+    server_indicies = [parity, current_server]
+    old_data_int = int.from_bytes(self.serverlookup[current_server].obj.Get(stripe), "big")
+    old_parity_int = int.from_bytes(self.serverlookup[parity].obj.Get(stripe), "big")
+    new_data_int = int.from_bytes(putdata, "big")
+    new_parity_int = (new_data_int ^ old_data_int) ^ old_parity_int
+    new_parity = bytearray((new_parity_int.to_bytes(BLOCK_SIZE, byteorder='big')).ljust(BLOCK_SIZE,b'\x00'))
+    byte_array = str(new_parity.hex())
+    return new_parity
+
+  def UpdateParity(self, block_number, putdata):
+    parity = self.MapServers(block_number)[2]
+    stripe = self.MapServers(block_number)[1]
+
+    """
+    try:
+      parity_data = self.UpdateParityA(block_number, putdata)
+      #print(parity_data)
+      self.serverlookup[parity].obj.Put(stripe, parity_data)
+      print("ParityA")  
+      return 
+    except Exception as e:
+      print("ParityA")
+      print(e)
+    """
+    
+    try:
+      parity_data = self.UpdateParityB(block_number, putdata)
+      #print("Stripe" + str(stripe))
+      self.serverlookup[parity].obj.Put(stripe, parity_data)
+      print("Parity {} in server {} stripe {}".format(int.from_bytes(parity_data,'big'), parity, stripe))
+      #print("ParityB")
+      return
+    except Exception as e:
+      print("ParityB")
+      print(e)
+
+    return -1
+
+
+  def BuildMissingBlock(self, block_number):
+    print("Rebuilding Blocks")
+    servermap = self.MapServers(block_number)
+    current_server = servermap[0]
+    stripe = servermap[1]
+    parity = servermap[2]
+    server_indicies = [i for i in range(self.nservers)]
+    for i in server_indicies:
       try:
-        self.UpdateParity(vblock, putdata)
+        print("Server {}".format(i))
+        print(int.from_bytes(self.serverlookup[i].obj.Get(stripe), 'big'))
+        print("Succesful")
+      except:
+        pass
+    server_indicies.remove(current_server)
+    byte_array = bytearray(BLOCK_SIZE)
+    for i in server_indicies:
+      byte_array = self.byte_xor(byte_array,self.serverlookup[i].obj.Get(stripe))
+
+    return byte_array
+
+  def ErrorCorrect(self, physical_block_number, corrupted_serverID):
+    corrected_data = bytearray(BLOCK_SIZE)
+
+    for i in range(0, self.num_servers):
+      if (i != corrupted_serverID):
+        corrected_data = byte_xor(corrected_data, self.block_server[i].Get(physical_block_number))
+
+    return corrected_data
+
+  def Put(self,block_number, putdata, isparityput=False, server=None, block=None):    
+    
+    if not server:
+      data = self.MapServers(block_number)
+      server = data[0]
+      new_block_number = data[1]
+    else:
+      server = server
+      new_block_number = block
+    print("Put {} in server {} stripe {}".format(int.from_bytes(putdata,'big'), server, new_block_number))
+    server_obj = self.serverlookup[server]
+
+    self.UpdateParity(block_number, putdata)
+
+    if server_obj.valid:
+      try:
+        putcode = server_obj.obj.Put(new_block_number,putdata)
+        return putcode
       except Exception as e:
         print(e)
+        self.updateServerStatus(server_obj.id, False)
+
+    return 1
+
+  def Get(self, block_number, server=None, block=None):
+    print("Get")
+    if not server:
+      data = self.MapServers(block_number)
+      server = data[0]
+      new_block_number = data[1]
+    else:
+      server = server
+      new_block_number = block
+
+    server_obj = self.serverlookup[server]
+
+    if server_obj.valid:
       try:
-        ret = self.serverlookup[int(server)].obj.Put(vblock, putdata)
-        return ret
+        getdata = server_obj.obj.Get(new_block_number)
+        if(getdata != -1):
+          print("Get {} from block {}".format(int.from_bytes(getdata,'big'), block_number))
+          return getdata
+        else:
+          pass
       except Exception as e:
-        print("Bad put to server " + str(server))
         print(e)
-      # return as bytearray
-      return 0
+        self.updateServerStatus(server_obj.id, False)
+        
+    rebuilt_data = self.BuildMissingBlock(block_number)
+    print("Get {} from block {}".format(int.from_bytes(rebuilt_data,'big'), block_number))
+    return rebuilt_data
 
-    logging.error('ServerGet: Block number larger than TOTAL_NUM_BLOCKS: ' + str(block_number))
-    quit()   
 
+"""
+
+
+  def UpdateParity(self, block_number, putdata):
+
+    stripe_info = self.MapServers(block_number)
+    parity_block = self.Get(block_number, stripe_info[2], stripe_info[1])
+    old_data_block = self.Get(block_number)
+    new_parity_block = self.byte_xor(parity_block, old_data_block)
+    new_parity_block = self.byte_xor(putdata, new_parity_block)
+    self.Put(block_number, putdata, True)
+
+  def CreateBadBlock(self, block_number):
+    good_servers = [i for i in range(0,self.nservers)]
+    data = self.MapServers(block_number)
+    stripe = data[1]
+    good_servers.remove(data[0])
+    starting_node = self.Get(block_number, server = good_servers[-1], block = stripe)
+    
+    for i in good_servers[:-1]:
+      print(i)
+      starting_node = self.byte_xor(starting_node, self.Get(block_number, server = i, block = stripe))
+
+    print("Rebuilt node {}".format(block_number))
+    print(starting_node)
+    return starting_node
+
+  def Get(self, block_number, server=None, block=None):
+    x = -1
+    
+    if not server:
+      data = self.MapServers(block_number)
+      server = data[0]
+      new_block_number = data[1]
+    else:
+      server = server
+      new_block_number = block
+
+    server_obj = self.serverlookup[server]
+
+    if server_obj.valid:
+      try:
+        x = server_obj.obj.Get(new_block_number)
+      except Exception as e:
+        print(e)
+        self.updateServerStatus(server_obj.id, False)
+      if(x == -1):
+        return self.CreateBadBlock(block_number)
+        print(x)
+    return x
+
+
+
+  def Put(self,block_number, putdata, isparityput=False):
+    x = 1
+    
+    data = self.MapServers(block_number)
+    server = data[0]
+    new_block_number = data[1]
+    server_obj = self.serverlookup[server]
+
+    self.TestServer(server_obj.id)
+
+    if(self.good_servers == self.nservers):
+      if server_obj.valid:
+        if(not isparityput):
+          self.UpdateParity(block_number, putdata)
+        try:
+          x = server_obj.obj.Put(new_block_number,putdata)
+        except Exception as e:
+          print(e)
+          self.updateServerStatus(server_obj.id, False)
+      return x
+    return -1
+
+
+
+  def Get(self,block_number):
+    x = 1
+    for i in self.serverlookup:
+      if i.valid:
+        try:
+          x = i.obj.Get(block_number)
+        except Exception as e:
+          print(e)
+          i.valid = False
+    return x
+
+  def Put(self,block_number,putdata):
+    x = 1
+    for i in self.serverlookup:
+      if i.valid:
+        try:
+          #print(type(putdata))
+          x = i.obj.Put(block_number,putdata)
+        except Exception as e:
+          print(e)
+          i.valid = False
+    return x
+"""
+#### BLOCK LAYER 
+
+class DiskBlocks():
+  def __init__(self, args):
+
+    # initialize clientID 
+    if args.cid>=0 and args.cid<MAX_CLIENTS:
+      self.clientID = args.cid
+    else:
+      print('Must specify valid cid')
+      quit()
+
+    # initialize XMLRPC client connection to raw block server
+    #if args.port0:
+    #  PORT = args.port0
+    #else:
+    #  print('Must specify port number')
+    #  quit()
+    #server_url = 'http://' + SERVER_ADDRESS + ':' + str(PORT)
+    #self.block_server = xmlrpc.client.ServerProxy(server_url, use_builtin_types=True)
+    
+    self.RAID_engine = RAID_engine(args)
+
+    self.HandleFSConstants(args)
+
+    self.blockcache = {}
+
+    ## The rest below is commented out, as the blocks are stored/initialized on the server
+    # This class stores the raw block array
+    # self.block = []                                            
+    # Initialize raw blocks 
+    # for i in range (0, TOTAL_NUM_BLOCKS):
+    #   putdata = bytearray(BLOCK_SIZE)
+    #   self.block.insert(i,putdata)
+
+  #HandleFSConstants: Modify the FS constants if provided in command line argument
 
   def HandleFSConstants(self, args):
 
@@ -332,19 +543,46 @@ class DiskBlocks():
     if block_number in range(0,TOTAL_NUM_BLOCKS): 
       # ljust does the padding with zeros
       putdata = bytearray(block_data.ljust(BLOCK_SIZE,b'\x00'))
+      #print(type(putdata))
       # Write block
       # commenting this out as the request now goes to the server
       # self.block[block_number] = putdata
       # call Put() method on the server and check for error
-      server, stripe, parityserver = self.ConvertVblockData(block_number)
-      ret = self.ServerPut(server, stripe, putdata)
+      
+      # old version
+      #ret = self.block_server.Put(block_number,putdata)
+      ret = self.RAID_engine.Put(block_number,putdata)
+
       if ret == -1:
         logging.error('Put: Server returns error')
-        quit()
+        #quit()
       return 0
     else:
       logging.error('Put: Block out of range: ' + str(block_number))
-      quit() 
+      quit()
+
+
+## Get: interface to read a raw block of data from block indexed by block number
+## Equivalent to the textbook's BLOCK_NUMBER_TO_BLOCK(b)
+
+  def ServerGet(self, block_number):
+
+    logging.debug ('ServerGet: ' + str(block_number))
+    if block_number in range(0,TOTAL_NUM_BLOCKS):
+      # logging.debug ('\n' + str((self.block[block_number]).hex()))
+      # commenting this out as the request now goes to the server
+      # return self.block[block_number]
+      # call Get() method on the server
+
+      # old version
+      #data = self.block_server.Get(block_number)
+      data = self.RAID_engine.Get(block_number)
+
+      # return as bytearray
+      return bytearray(data)
+
+    logging.error('ServerGet: Block number larger than TOTAL_NUM_BLOCKS: ' + str(block_number))
+    quit()
 
 ## RSM: read and set memory equivalent
 
@@ -352,7 +590,12 @@ class DiskBlocks():
 
     logging.debug ('RSM: ' + str(block_number))
     if block_number in range(0,TOTAL_NUM_BLOCKS):
+      
+
+      # old version
       data = self.block_server.RSM(block_number)
+
+
       return bytearray(data)
 
     logging.error('RSM: Block number larger than TOTAL_NUM_BLOCKS: ' + str(block_number))
@@ -422,14 +665,16 @@ class DiskBlocks():
     logging.debug ('Get: ' + str(block_number))
     if block_number in range(0,TOTAL_NUM_BLOCKS):
       # is it in the cache?
+
       # call Get() method on the server
-      server, stripe, parityserver = self.ConvertVblockData(block_number)
-      data = self.ServerGet(server, stripe)
+      data = self.ServerGet(block_number)
       # convert to bytearray
       result = bytearray(data)
       # store to cache
+      #self.blockcache[block_number] = result
       return result
-    return -1
+
+
     logging.error('Get: Block number larger than TOTAL_NUM_BLOCKS: ' + str(block_number))
     quit()
 

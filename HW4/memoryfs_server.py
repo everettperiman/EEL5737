@@ -28,13 +28,13 @@ def checksum_check(block_number, data):
   print("{} {}".format(block_number, CBLCK))
   if block_number == CBLCK:
     print("Bad block")
-    return 0
+    return -1
   else:
     if hashlib.md5(bytearray(data.data)).hexdigest() == server.checksums[block_number]:
       print("It matches!")
       return 1
     else:
-      return 0
+      return -1
 
 
 if __name__ == "__main__":
@@ -92,8 +92,12 @@ if __name__ == "__main__":
 
   def Get(block_number):
     result = RawBlocks.block[block_number]
-    checksum_check(block_number, result)
-    return result
+    if block_number == CBLCK:
+      return -1
+    if(checksum_check(block_number, result)):
+      return result
+    else:
+      return -1
 
 
   server.register_function(Get)

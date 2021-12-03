@@ -81,24 +81,24 @@ class FSShell():
     inobj.InodeNumberToInode()
     block_index = 0
     while block_index <= (inobj.inode.size // BLOCK_SIZE):
-      block = self.FileObject.RawBlocks.Get(inobj.inode.block_numbers[block_index])
-      if block_index == (inobj.inode.size // BLOCK_SIZE):
-        end_position = inobj.inode.size % BLOCK_SIZE
-      else:
-        end_position = BLOCK_SIZE
-      current_position = 0
-      while current_position < end_position:
-        entryname = block[current_position:current_position+MAX_FILENAME]
-        entryinode = block[current_position+MAX_FILENAME:current_position+FILE_NAME_DIRENTRY_SIZE]
-        entryinodenumber = int.from_bytes(entryinode, byteorder='big')
-        inobj2 = InodeNumber(self.FileObject.RawBlocks, entryinodenumber)
-        inobj2.InodeNumberToInode()
-        if inobj2.inode.type == INODE_TYPE_DIR:
-          print (entryname.decode() + "/")
+        block = self.FileObject.RawBlocks.Get(inobj.inode.block_numbers[block_index])
+        if block_index == (inobj.inode.size // BLOCK_SIZE):
+          end_position = inobj.inode.size % BLOCK_SIZE
         else:
-          print (entryname.decode())
-        current_position += FILE_NAME_DIRENTRY_SIZE
-      block_index += 1
+          end_position = BLOCK_SIZE
+        current_position = 0
+        while current_position < end_position:
+          entryname = block[current_position:current_position+MAX_FILENAME]
+          entryinode = block[current_position+MAX_FILENAME:current_position+FILE_NAME_DIRENTRY_SIZE]
+          entryinodenumber = int.from_bytes(entryinode, byteorder='big')
+          inobj2 = InodeNumber(self.FileObject.RawBlocks, entryinodenumber)
+          inobj2.InodeNumberToInode()
+          if inobj2.inode.type == INODE_TYPE_DIR:
+            print (entryname.decode() + "/")
+          else:
+            print (entryname.decode())
+          current_position += FILE_NAME_DIRENTRY_SIZE
+        block_index += 1
     return 0
 
   # implements cat (print file contents)
@@ -170,6 +170,10 @@ class FSShell():
     self.FileObject.RawBlocks.DumpToDisk(dumpfilename)
     return 0
 
+  def rebuild(self, server):
+    self.FileObject.RawBlocks.RebuildAll(int(server))
+    return 0
+
   def Interpreter(self):
     while (True):
       command = input("[cwd=" + str(self.cwd) + "]:")
@@ -206,25 +210,25 @@ class FSShell():
           print ("Error: create requires one argument")
         else:
           #self.FileObject.RawBlocks.Acquire()
-          self.FileObject.RawBlocks.CheckAndInvalidate()
+          #self.FileObject.RawBlocks.CheckAndInvalidate()
           self.create(splitcmd[1])
-          self.FileObject.RawBlocks.ForceInvalidate()
+          #self.FileObject.RawBlocks.ForceInvalidate()
           #self.FileObject.RawBlocks.Release()
       elif splitcmd[0] == "ln":
         if len(splitcmd) != 3:
           print ("Error: ln requires two arguments")
         else:
           #self.FileObject.RawBlocks.Acquire()
-          self.FileObject.RawBlocks.CheckAndInvalidate()
+          #self.FileObject.RawBlocks.CheckAndInvalidate()
           self.link(splitcmd[1], splitcmd[2])
-          self.FileObject.RawBlocks.ForceInvalidate()
+          #self.FileObject.RawBlocks.ForceInvalidate()
           #self.FileObject.RawBlocks.Release()
       elif splitcmd[0] == "chroot":
         if len(splitcmd) != 2:
           print ("Error: chroot requires one argument")
         else:
           #self.FileObject.RawBlocks.Acquire()
-          self.FileObject.RawBlocks.CheckAndInvalidate()
+          #self.FileObject.RawBlocks.CheckAndInvalidate()
           self.chroot(splitcmd[1])
           #self.FileObject.RawBlocks.Release()
       elif splitcmd[0] == "append":
@@ -232,13 +236,13 @@ class FSShell():
           print ("Error: append requires two arguments")
         else:
           #self.FileObject.RawBlocks.Acquire()
-          self.FileObject.RawBlocks.CheckAndInvalidate()
+          #self.FileObject.RawBlocks.CheckAndInvalidate()
           self.append(splitcmd[1], splitcmd[2])
-          self.FileObject.RawBlocks.ForceInvalidate()
+          #self.FileObject.RawBlocks.ForceInvalidate()
           #self.FileObject.RawBlocks.Release()
       elif splitcmd[0] == "ls":
         #self.FileObject.RawBlocks.Acquire()
-        self.FileObject.RawBlocks.CheckAndInvalidate()
+        #self.FileObject.RawBlocks.CheckAndInvalidate()
         self.ls()
         #self.FileObject.RawBlocks.Release()
       elif splitcmd[0] == "showblock":
@@ -266,6 +270,11 @@ class FSShell():
           print ("Error: save requires 1 argument")
         else:
           self.save(splitcmd[1])
+      elif splitcmd[0] == "rebuild":
+        if len(splitcmd) != 2:
+          print ("Error: rebuild requires 2 argument")
+        else:
+          self.rebuild(splitcmd[1])
       elif splitcmd[0] == "exit":
         return
       else:
@@ -337,7 +346,7 @@ if __name__ == "__main__":
   logging.info('Initializing data structures...')
   RawBlocks = DiskBlocks(args)
   boot_block = b'\x00\x12\x34\x56' # constant 00123456 stored as beginning of boot block; no need to change this
-  #RawBlocks.InitializeBlocks(boot_block)
+  RawBlocks.InitializeBlocks(boot_block)
 
 
   # Print file system information and contents of first few blocks to memoryfs.log
@@ -346,6 +355,7 @@ if __name__ == "__main__":
 
   # Initialize FileObject inode
   FileObject = FileName(RawBlocks)
+
 
   # reload the global variables (in case they changed due to command line inputs)
   from memoryfs_client import *
