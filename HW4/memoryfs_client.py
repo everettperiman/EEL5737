@@ -92,11 +92,12 @@ INODE_TYPE_SYM = 3
 #### BLOCK LAYER 
 
 class RAID_server():
-  def __init__(self, id, port, serveraccess):
+  def __init__(self, id, port, serveraccess, url):
     self.id = id
     self.port = port
     self.obj = serveraccess
     self.valid = True
+    self.url = url
 
   def server_info(self):
     server_info = "ID:{} Port:{} Object:{}".format(self.id, self.port, self.obj)
@@ -125,7 +126,8 @@ class DiskBlocks():
           block_server_id = block_server.ServerID()
           self.serverlookup.append(RAID_server(block_server_id,
                                                 args_dict[argument],
-                                                block_server))
+                                                block_server,
+                                                server_url))
           self.servers.append(block_server)
           self.good_servers += 1
     self.nservers = len(self.serverlookup)
@@ -162,13 +164,17 @@ class DiskBlocks():
     return recovered
 
   def RebuildAll(self, bad_server):
-  
+    #for server in self.serverlookup:
+    #  if server.id == int(bad_server):
+    #    self.updateServerStatus(bad_server, True)
+    #    block_server = xmlrpc.client.ServerProxy(server.url, use_builtin_types=True)
+
     for i in range(TOTAL_NUM_BLOCKS // self.nservers):
-      print(i)
+      #print(i)
       original = self.ServerGet(bad_server, i)
       rebuilt = self.GetRebuild(bad_server, i)
-      print(original)
-      print(rebuilt)
+      #print(original)
+      #print(rebuilt)
       #self.ServerPut(bad_server, i, rebuilt)
       self.servers[int(bad_server)].Put(i, rebuilt)
       #self.ServerPut(bad_server, i, rebuilt)
@@ -182,9 +188,7 @@ class DiskBlocks():
       self.good_servers = self.good_servers - 1
     if self.good_servers < self.nservers - 1:
       print("Not enough good servers")
-      quit()
-    #print(self.good_servers)
-    return
+      quit()    
 
   def UpdateParity(self, virtual_block, newData, failstop=False):
     #print("Parity {}".format(virtual_block))
@@ -233,12 +237,12 @@ class DiskBlocks():
         print(e)
       try:
         data = self.GetRebuild(server, vblock)
-        print(data)
+        #print(data)
         return bytearray(data)
       except Exception as e:
         print("Rebuild failed")
         print(e)
-      
+      return -1
       # return as bytearray
       
 
@@ -429,7 +433,7 @@ class DiskBlocks():
       result = bytearray(data)
       # store to cache
       return result
-    return -1
+    #return -1
     logging.error('Get: Block number larger than TOTAL_NUM_BLOCKS: ' + str(block_number))
     quit()
 

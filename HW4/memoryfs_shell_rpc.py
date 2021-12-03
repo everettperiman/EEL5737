@@ -88,6 +88,7 @@ class FSShell():
           end_position = BLOCK_SIZE
         current_position = 0
         while current_position < end_position:
+          print(block)
           entryname = block[current_position:current_position+MAX_FILENAME]
           entryinode = block[current_position+MAX_FILENAME:current_position+FILE_NAME_DIRENTRY_SIZE]
           entryinodenumber = int.from_bytes(entryinode, byteorder='big')
