@@ -3,7 +3,7 @@ import argparse
 
 from memoryfs_client import *
 import os.path
-
+import time
 ## This class implements an interactive shell to navigate the file system
 
 class FSShell():
@@ -77,6 +77,7 @@ class FSShell():
 
   # implements ls (lists files in directory)
   def ls(self):
+    start = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
     inobj = InodeNumber(self.FileObject.RawBlocks, self.cwd)
     inobj.InodeNumberToInode()
     block_index = 0
@@ -88,7 +89,6 @@ class FSShell():
           end_position = BLOCK_SIZE
         current_position = 0
         while current_position < end_position:
-          print(block)
           entryname = block[current_position:current_position+MAX_FILENAME]
           entryinode = block[current_position+MAX_FILENAME:current_position+FILE_NAME_DIRENTRY_SIZE]
           entryinodenumber = int.from_bytes(entryinode, byteorder='big')
@@ -100,6 +100,7 @@ class FSShell():
             print (entryname.decode())
           current_position += FILE_NAME_DIRENTRY_SIZE
         block_index += 1
+        print(time.clock_gettime_ns(time.CLOCK_MONOTONIC) - start)
     return 0
 
   # implements cat (print file contents)
@@ -162,8 +163,10 @@ class FSShell():
     if not os.path.isfile(dumpfilename):
       print("Error: Please provide valid file")
       return -1
+    start = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
     self.FileObject.RawBlocks.LoadFromDisk(dumpfilename)
     self.cwd = 0
+    print(time.clock_gettime_ns(time.CLOCK_MONOTONIC) - start)
     return 0
 
   # implements save (save the file system contents to specified dump file)
