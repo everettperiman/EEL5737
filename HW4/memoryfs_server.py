@@ -24,13 +24,11 @@ class DiskBlocks():
       self.block.insert(i,putdata)
 
 def checksum_check(block_number, data):
-  #print("{} {}".format(block_number, CBLCK))
+  # If the checksum passes it returns 1
   if block_number == CBLCK:
-    #print("Bad block")
     return -1
   else:
     if hashlib.md5(bytearray(data.data)).hexdigest() == server.checksums[block_number]:
-      #print("It matches!")
       return 1
     else:
       return -1

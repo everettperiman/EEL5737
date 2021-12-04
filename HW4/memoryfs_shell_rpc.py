@@ -274,9 +274,9 @@ class FSShell():
           print ("Error: save requires 1 argument")
         else:
           self.save(splitcmd[1])
-      elif splitcmd[0] == "rebuild":
+      elif splitcmd[0] == "repair":
         if len(splitcmd) != 2:
-          print ("Error: rebuild requires 2 argument")
+          print ("Error: repair requires 2 argument")
         else:
           self.rebuild(splitcmd[1])
       elif splitcmd[0] == "exit":

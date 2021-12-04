@@ -130,12 +130,15 @@ class DiskBlocks():
           self.good_servers += 1
     self.nservers = len(self.serverlookup)
 
+  # This method is used to XOR two byte arrays and return said array
   def byte_xor(self, arrayA, arrayB):
     resultArray = []
     for i in range(BLOCK_SIZE):
       resultArray.append(arrayA[i] ^ arrayB[i])
     return bytearray(resultArray)
 
+  # This method handles all of the mapping for the virtual blocks to physical blocks
+  # It takes in the vblock and returns the correct server, stripe(phy block), and the parity server in that stripe
   def ConvertVblockData(self, vblock):
       stripe = vblock // (self.nservers-1)
       parityserver = (self.nservers - 1) - (stripe % (self.nservers))
@@ -144,9 +147,12 @@ class DiskBlocks():
         server += 1
       return server, stripe, parityserver
 
+  # This method attempts to rebuild a block based on all other data blocks and the parity block
   def GetRebuild(self, server, block_number):
+    # Create empty bytearray
     recovered = bytearray(BLOCK_SIZE)
-    logging.debug('Recovering Server [' + str(server) + ']  Block [' + str(block_number) + ']')
+    
+    # Iterate over all of the servers except the current bad server
     for i in range(0, self.nservers):
       if i != server:
         block = bytearray(self.ServerGet(i, block_number))
@@ -154,51 +160,67 @@ class DiskBlocks():
     logging.debug('Recovered: ' + str(recovered.hex()))
     return recovered
 
+  # This method is responsible for rebuilding a bad server
   def RebuildAll(self, bad_server):
+
+    # Update the status of the server as good after connecting to the server
     for server in self.serverlookup:
       if server.id == int(bad_server):
-        self.updateServerStatus(bad_server, True)
         block_server = xmlrpc.client.ServerProxy(server.url, use_builtin_types=True)
+        self.updateServerStatus(bad_server, True)
 
+    # Progress through all of the blocks, rebuild based off of parity, and restore the block data
     for i in range(TOTAL_NUM_BLOCKS // self.nservers):
       rebuilt = self.GetRebuild(bad_server, i)
       self.servers[int(bad_server)].Put(i, rebuilt)
 
+  # This method is used to keep track of which servers are known good and known bad
   def updateServerStatus(self, serverid, status):
+    # If a server is known good i.e. status=True increment the number of good servers and update the validity
     if status:
       self.serverlookup[serverid].valid = True
       self.good_servers = self.good_servers + 1
+
+    # If a server is known bad i.e. status=False decrement the number of good servers and update the validity
     else:
       self.serverlookup[serverid].valid = False
       self.good_servers = self.good_servers - 1
+
+    # Test whether or not there are enough good servers to proceed
     if self.good_servers < self.nservers - 1:
       print("Not enough good servers")
       quit()    
 
   def UpdateParity(self, virtual_block, newData, failstop=False):
 
+    # Get data for the servers and the current stripe
     dataServer, parityBlock, parityServer = self.ConvertVblockData(virtual_block)
     dataBlock = parityBlock
 
+    # Get the old data and parity
     oldData = self.ServerGet(dataServer, dataBlock)
     oldParity = self.ServerGet(parityServer, parityBlock)
+
+    # XOR the old data and the old parity with the new data to determine the new parity
     newData = bytearray(newData.ljust(BLOCK_SIZE, b'\x00'))
     dataXOR = bytearray(self.byte_xor(oldData, newData))
     newParity = bytearray(self.byte_xor(dataXOR, oldParity))
     newParity = bytearray(newParity.ljust(BLOCK_SIZE, b'\x00'))
 
-    x = self.servers[parityServer].Get(parityBlock)
+    # Insert the new parity into the server
     self.servers[parityServer].Put(parityBlock, newParity)
 
     return newParity
 
-## Get: interface to read a raw block of data from block indexed by block number
-## Equivalent to the textbook's BLOCK_NUMBER_TO_BLOCK(b)
 
   def ServerGet(self, server, vblock):
 
     logging.debug ('ServerGet: ' + str(vblock))
+
+    # Check if the virtual block is in range
     if vblock in range(0,TOTAL_NUM_BLOCKS):
+
+      # If the Server is thought to be good FAILSAFE
       if(self.serverlookup[server].valid):
         try:
           data = self.serverlookup[server].obj.Get(vblock)
@@ -206,36 +228,44 @@ class DiskBlocks():
             return bytearray(data)
         except Exception as e:
           pass
+
+      # If the data was corrupt or it was a FAILSAFE error rebuilding the data
       try:
+        # Try to rebuild the data
         data = self.GetRebuild(server, vblock)
         try:
+          # Try to update the server in the case of a corrupted data block
           self.serverlookup[server].obj.Put(vblock, data)
         except:
           pass
         return bytearray(data)
       except Exception as e:
         pass
-      return -1      
+      return -1
     quit()
 
   def ServerPut(self, server, vblock, putdata):
-    logging.debug ('ServerPut: ' + str(vblock))
+    # Check if the virtual block is in range
     if vblock in range(0,TOTAL_NUM_BLOCKS):
+
+      # Try to update the parity it might be FAILSAFE
       try:
         self.UpdateParity(vblock, putdata)
       except Exception as e:
-        #print(e)
         pass
+
+      # If the server is thought to be good try and Put the data
       if(self.serverlookup[server].valid):
         try:
           ret = self.serverlookup[int(server)].obj.Put(vblock, putdata)
           return ret
         except Exception as e:
+
+          # Update the server as a known bad server
           self.updateServerStatus(server, False)
           pass
         return 0
       return -1
-    logging.error('ServerGet: Block number larger than TOTAL_NUM_BLOCKS: ' + str(block_number))
     quit()   
 
 
